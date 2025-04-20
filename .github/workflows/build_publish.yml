@@ -1,0 +1,63 @@
+name: Build & Commit Artifacts
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pipeline repo
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true
+
+      - name: Checkout RSMod upstream
+        uses: actions/checkout@v3
+        with:
+          repository: rsmod/rsmod
+          path: upstream
+
+      - name: Set up JDK 17 + Kotlin
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Build & publish to local-maven
+        run: |
+          ./gradlew clean extraJar publishExtraPublicationToLocalRepo --no-daemon
+
+      - name: Compute current CRC
+        id: crc
+        run: |
+          ARTIFACT=$(find local-maven/com/rsmod/rsmod-extra -type f -name 'rsmod-extra-*.jar' | head -n1)
+          echo "artifact=$ARTIFACT" >> $GITHUB_OUTPUT
+          CURRENT_CRC=$(cksum "$ARTIFACT" | cut -d' ' -f1)
+          echo "current_crc=$CURRENT_CRC" >> $GITHUB_OUTPUT
+          if [ -f last_crc.txt ]; then
+            PREV_CRC=$(cat last_crc.txt)
+          else
+            PREV_CRC=""
+          fi
+          if [ "$CURRENT_CRC" != "$PREV_CRC" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy & commit new artifacts
+        if: steps.crc.outputs.changed == 'true'
+        run: |
+          BUILD_NUM=${{ github.run_number }}
+          mkdir -p artifacts/$BUILD_NUM
+          cp "$ARTIFACT" artifacts/$BUILD_NUM/
+          echo "${{ steps.crc.outputs.current_crc }}" > last_crc.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add artifacts/$BUILD_NUM last_crc.txt
+          git commit -m "Publish rsmod‑extra artifacts (run #$BUILD_NUM)"
+          git push
