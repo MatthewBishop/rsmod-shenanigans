@@ -1,4 +1,6 @@
 name: Build & Commit Artifacts
+permissions:
+  contents: write
 
 on:
   push:
@@ -19,23 +21,21 @@ jobs:
           repository: rsmod/rsmod
           path: upstream
 
-      - name: Set up JDK 17 + Kotlin
+      - name: Set up JDK 8 + Kotlin
         uses: actions/setup-java@v3
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 8
           cache: gradle
 
-      - name: Build & publish to local-maven
-        run: |
-          ./gradlew clean extraJar publishExtraPublicationToLocalRepo --no-daemon
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
       - name: Compute current CRC
         id: crc
         run: |
-          ARTIFACT=$(find local-maven/com/rsmod/rsmod-extra -type f -name 'rsmod-extra-*.jar' | head -n1)
-          echo "artifact=$ARTIFACT" >> $GITHUB_OUTPUT
-          CURRENT_CRC=$(cksum "$ARTIFACT" | cut -d' ' -f1)
+          ./gradlew computeSourceCrc --no-daemon
+          CURRENT_CRC=$(cat build/source_crc.txt)
           echo "current_crc=$CURRENT_CRC" >> $GITHUB_OUTPUT
           if [ -f last_crc.txt ]; then
             PREV_CRC=$(cat last_crc.txt)
@@ -48,16 +48,33 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Copy & commit new artifacts
+      - name: Build & publish to local-maven
         if: steps.crc.outputs.changed == 'true'
         run: |
-          BUILD_NUM=${{ github.run_number }}
-          mkdir -p artifacts/$BUILD_NUM
-          cp "$ARTIFACT" artifacts/$BUILD_NUM/
-          echo "${{ steps.crc.outputs.current_crc }}" > last_crc.txt
+          ./gradlew publishExtraPublicationToLocalRepo --no-daemon
 
+      - name: Bump version & commit artifacts
+        if: steps.crc.outputs.changed == 'true'
+        run: |
+          # Determine current version from gradle.properties
+          CURRENT_VER=$(grep '^version=' gradle.properties | cut -d'=' -f2 | tr -d ' "')
+          echo "Current version: $CURRENT_VER"
+          
+          # Split into segments and increment the last (patch) digit
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VER"
+          PATCH=$((PATCH + 1))
+          NEW_VER="$MAJOR.$MINOR.$PATCH"
+          echo "Bumping version to: $NEW_VER"
+
+          # Update version in gradle.properties
+          sed -i "s|^version=.*|version=$NEW_VER|" gradle.properties
+
+         
+          # Update CRC tracker
+          echo "${{ steps.crc.outputs.current_crc }}" > last_crc.txt
+          # Commit and push the changes
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add artifacts/$BUILD_NUM last_crc.txt
-          git commit -m "Publish rsmod‑extra artifacts (run #$BUILD_NUM)"
+          git add gradle.properties artifacts/ last_crc.txt
+          git commit -m "Publish rsmod-extra v${CURRENT_VER} artifacts"
           git push
