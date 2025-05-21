@@ -38,11 +38,14 @@ sourceSets {
             kotlin.srcDirs(
                 "upstream/api/combat-accuracy/src/main/kotlin",
                 "upstream/api/combat-maxhit/src/main/kotlin",
+                "upstream/api/utils/utils-format/src/main/kotlin",
+                "upstream/api/utils/utils-skills/src/main/kotlin",
                 "upstream/engine/coroutine/src/main/kotlin",
                 "upstream/engine/interact/src/main/kotlin",
                 "upstream/engine/map/src/main/kotlin",
                 "upstream/engine/routefinder/src/main/kotlin",
-                "upstream/engine/utils-bits/src/main/kotlin"
+                "upstream/engine/utils-bits/src/main/kotlin",
+                "upstream/engine/utils-sorting/src/main/kotlin"
             )
         }
         resources.srcDirs(
